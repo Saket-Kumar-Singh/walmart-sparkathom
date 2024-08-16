@@ -98,6 +98,7 @@ exports.getProductByEmbeddings = asyncErrorHandler(async (req, res, next) => {
     //  return nearestAnswers;
     const prodNames = products.map(prod => ({
         name : prod.name,
+        id : prod._id
     }));
 
     res.status(200).json({
