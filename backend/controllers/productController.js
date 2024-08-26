@@ -8,6 +8,7 @@ const axios = require('axios'); // or node-fetch
 var similarity = require( 'compute-cosine-similarity' );
 const { storeUserChat } = require('./userController');
 const User = require('../models/userModel');
+const { defineScript } = require('redis');
 
 async function find_embedding(product) {
 
@@ -91,7 +92,7 @@ exports.getProductByEmbeddings = asyncErrorHandler(async (req, res, next) => {
     similarityScores.sort((a, b) => b.similarity - a.similarity);
     // console.log(similarityScores);
       // Get the top 5 document IDs
-    const top5Ids = similarityScores.slice(0, 2).map(score => score._id);
+    const top5Ids = similarityScores.slice(0, 5).map(score => score._id);
 
     const products = await Product.find({ _id: { $in: top5Ids } });
     const filteredProductsCount = products.length;
@@ -177,7 +178,14 @@ exports.getAdminProducts = asyncErrorHandler(async (req, res, next) => {
 
 // Create Product ---ADMIN
 exports.createProduct = asyncErrorHandler(async (req, res, next) => {
-
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API);
+    const model = genAI.getGenerativeModel({
+        model: "gemini-1.5-flash",
+        systemInstruction: "You are a product description generator. For each product, you will be given a text in the form of key value pair you \
+        have to generate full product summary showing the key features, cost, discounts etc. make a description as neutral as possible . if the desccription or highlight says the word good or bad just ignore it and focus only on specs\
+        . remember to keep it as crisp as possible.Ignore links",
+      });
+  
     let images = [];
     if (typeof req.body.images === "string") {
         images.push(req.body.images);
@@ -186,7 +194,6 @@ exports.createProduct = asyncErrorHandler(async (req, res, next) => {
     }
 
     const imagesLink = [];
-    console.log(req.body)
     let discount=Math.ceil(((req.body.price-req.body.cuttedPrice)/req.body.price)*100);
 
 
@@ -217,16 +224,34 @@ exports.createProduct = asyncErrorHandler(async (req, res, next) => {
     req.body.user = req.user.id;
     req.body.discount=discount;
     
-
-    req.body.embeddings = await find_embedding(req.body.description);
-
+    
     let specs = [];
     req.body.specifications.forEach((s) => {
         specs.push(JSON.parse(s))
     });
     req.body.specifications = specs;
 
+    console.log("ok");
+    var txt = {
+        "description" : req.body.description,
+        "title" : req.body.name,
+        "highlights" : req.body.highlights,
+        "brandname" : req.body.brandname,
+        "warrenty" : req.body.warrenty,
+        "name" : req.body.name,
+        "price" : req.body.price
+    }
+
+    var stringVar = JSON.stringify(txt);
+    const AIresult = await model.generateContent(stringVar);
+    const response = await AIresult.response;
+    var textSummary = response.text();  
+    req.body.aiDescription = textSummary;
+    console.log(textSummary);
+    req.body.embeddings = await find_embedding(req.body.aiDescription);
+    
     const product = await Product.create(req.body);
+    // console.log(req.body.aiDescription);
     // console.log(req.body);
 
     res.status(201).json({
